@@ -1,0 +1,75 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: my-prod-eks
+  region: us-east-1
+  version: "1.34"
+
+# VPC configuration (existing VPC)
+vpc:
+  id: "vpc-xxxxxxxx"
+  clusterEndpoints:
+    publicAccess: true        # change to false if you want fully private
+    privateAccess: true
+
+  subnets:
+    private:
+      us-east-1a:
+        id: "subnet-private-a"
+      us-east-1b:
+        id: "subnet-private-b"
+      us-east-1c:
+        id: "subnet-private-c"
+    public:
+      us-east-1a:
+        id: "subnet-public-a"
+      us-east-1b:
+        id: "subnet-public-b"
+      us-east-1c:
+        id: "subnet-public-c"
+
+# IAM
+iam:
+  withOIDC: true
+
+# Control plane logging (prod must-have)
+cloudWatch:
+  clusterLogging:
+    enableTypes:
+      - api
+      - audit
+      - authenticator
+      - controllerManager
+      - scheduler
+
+# Managed node groups (PROD)
+managedNodeGroups:
+  - name: system-ng
+    instanceType: m5.large
+    minSize: 2
+    desiredCapacity: 3
+    maxSize: 6
+    privateNetworking: true
+    labels:
+      nodegroup: system
+    tags:
+      nodegroup-role: system
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        cloudWatch: true
+        ebs: true
+        albIngress: true
+
+# EKS Addons (managed)
+addons:
+  - name: vpc-cni
+    version: latest
+  - name: kube-proxy
+    version: latest
+  - name: coredns
+    version: latest
+  - name: aws-ebs-csi-driver
+    version: latest
+
