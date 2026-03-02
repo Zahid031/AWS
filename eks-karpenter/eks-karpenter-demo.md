@@ -1,4 +1,4 @@
-# 🚀 Production-Grade EKS + Karpenter Setup
+#  Production-Grade EKS + Karpenter Setup
 
 > **Cluster:** `eks-karpenter-demo` | **Region:** `ap-southeast-1` | **K8s:** `1.31` | **Karpenter:** `v1.9.0`
 > **Workers:** Private subnets only | **Autoscaler:** Karpenter (replaces Cluster Autoscaler)
@@ -73,7 +73,7 @@ aws sts get-caller-identity
 
 ## 3. Environment Variables
 
-> ⚠️ **Re-export these every time you open a new shell.** Save them in a file like `env.sh` and `source env.sh` before each session.
+>  **Re-export these every time you open a new shell.** Save them in a file like `env.sh` and `source env.sh` before each session.
 
 ```bash
 # ── Versions (from official Karpenter docs) ───────────────────────────────────
@@ -95,7 +95,7 @@ aws ec2 describe-vpcs \
   --output text \
   --region ap-southeast-1
 
-export VPC_ID="vpc-06d97bfdb665d12ae"
+export VPC_ID="vpc-06d97bfdb665xxxxx"
 
 # ── AMI alias version (AL2023 pinned — from official docs) ────────────────────
 export ALIAS_VERSION="$(aws ssm get-parameter \
@@ -181,25 +181,25 @@ metadata:
 
 # ── Existing VPC ──────────────────────────────────────────────────────────────
 vpc:
-  id: "vpc-06d97bfdb6f3d12ae"
+  id: "vpc-06d97bfdb6f3xxxx"
   cidr: "10.38.0.0/16"
   subnets:
     # Workers launch ONLY into private subnets (privateNetworking: true below)
     private:
       ap-southeast-1a:
-        id: "subnet-0122ae8526d266c42"
+        id: "subnet-0122ae8526dxxxxx"
       ap-southeast-1b:
-        id: "subnet-02851165d8281"
+        id: "subnet-02851165dxxxxxxx"
       ap-southeast-1c:
-        id: "subnet-09d3ccdb786fe"
+        id: "subnet-09d3ccdb78xxxxx"
     # Public subnets used ONLY for ALB/NLB — no nodes launch here
     public:
       ap-southeast-1a:
-        id: "subnet-0b8fc61aee99e"
+        id: "subnet-0b8fc61aexxxxx"
       ap-southeast-1b:
-        id: "subnet-0e5a1b046c7ud"
+        id: "subnet-0e5a1b046xxxxx"
       ap-southeast-1c:
-        id: "subnet-0dc29c5ae7014"
+        id: "subnet-0dc29c5aexxxxx"
 
 # ── IAM: OIDC + Pod Identity + Node Role Mapping ──────────────────────────────
 iam:
@@ -208,6 +208,7 @@ iam:
 
   # Pod Identity Association for Karpenter controller (official docs recommended method)
   # These policy ARNs are created by the CloudFormation stack in Step 1
+  # Replace ACCOUNT_ID with original ID
   podIdentityAssociations:
     - namespace: "kube-system"
       serviceAccountName: karpenter
@@ -224,10 +225,10 @@ iam:
     - metadata:
         name: aws-load-balancer-controller
         namespace: kube-system
-      attachPolicyARNs:
-        - arn:aws:iam::ACCOUNT_ID:policy/AWSLoadBalancerControllerIAMPolicy
-        - arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess
+      wellKnownPolicies:
+        awsLoadBalancerController: true
       roleName: eks-load-balancer-controller-role
+
 
 # ── IAM Identity Mapping: Allow Karpenter nodes to join the cluster ───────────
 # Official docs: must map KarpenterNodeRole so provisioned nodes can register
@@ -257,9 +258,10 @@ managedNodeGroups:
     # Custom SG + SSH access
     securityGroups:
       attachIDs:
-        - "sg-0cbf0511da65c5fa6"
+        - "sg-0cbf0511da65c5fXXX"
     ssh:
-      publicKeyName: EKS
+      allow: false
+
 
     # Label + taint so ONLY system pods land here
     # Karpenter controller has a toleration for this taint
@@ -355,9 +357,9 @@ aws iam create-service-linked-role --aws-service-name spot.amazonaws.com || true
 ```bash
 # Tag PRIVATE subnets only
 for SUBNET_ID in \
-  subnet-09ec1f093bfef \
-  subnet-02851165d8281 \
-  subnet-09d3ccdb786fe; do
+  subnet-09ec1f093bXXX \
+  subnet-02851165d8XXX \
+  subnet-09d3ccdb78XXX; do
   aws ec2 create-tags \
     --resources "${SUBNET_ID}" \
     --tags "Key=karpenter.sh/discovery,Value=${CLUSTER_NAME}"
