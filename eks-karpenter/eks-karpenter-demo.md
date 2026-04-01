@@ -1,6 +1,6 @@
 #  Production-Grade EKS + Karpenter Setup
 
-> **Cluster:** `eks-karpenter-demo` | **Region:** `ap-southeast-1` | **K8s:** `1.31` | **Karpenter:** `v1.9.0`
+> **Cluster:** `eks-karpenter-demo` | **Region:** `ap-southeast-1` | **K8s:** `1.35` | **Karpenter:** `v1.9.0`
 > **Workers:** Private subnets only | **Autoscaler:** Karpenter (replaces Cluster Autoscaler)
 > **Reference:** [karpenter.sh/docs/getting-started](https://karpenter.sh/docs/getting-started/getting-started-with-karpenter/)
 
