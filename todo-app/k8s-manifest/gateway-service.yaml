@@ -58,6 +58,7 @@ spec:
     - name: http
       port: 8080
       targetPort: 8080
+      nodePort: 30080
   # Change to LoadBalancer (or add an Ingress) if you want to hit this from
   # outside the cluster instead of port-forwarding.
   type: NodePort
