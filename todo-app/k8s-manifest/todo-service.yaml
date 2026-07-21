@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-service
+  labels:
+    app: todo-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: todo-service
+  template:
+    metadata:
+      labels:
+        app: todo-service
+    spec:
+      containers:
+        - name: todo-service
+          image: zahid03/todo-grpc # TODO: replace with your built/pushed image
+          ports:
+            - name: grpc
+              containerPort: 50051
+          readinessProbe:
+            grpc:
+              port: 50051
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            grpc:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: todo-service
+  labels:
+    app: todo-service
+spec:
+  selector:
+    app: todo-service
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051

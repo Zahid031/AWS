@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-service
+  labels:
+    app: gateway-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway-service
+  template:
+    metadata:
+      labels:
+        app: gateway-service
+    spec:
+      containers:
+        - name: gateway-service
+          image: zahid03/todo-gateway:latest 
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: TODO_SERVICE_ADDR
+              value: "todo-service:50051"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-service
+  labels:
+    app: gateway-service
+spec:
+  selector:
+    app: gateway-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  # Change to LoadBalancer (or add an Ingress) if you want to hit this from
+  # outside the cluster instead of port-forwarding.
+  type: ClusterIP
