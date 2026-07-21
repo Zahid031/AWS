@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package todo;
+
+option go_package = "todo-service/proto;proto";
+
+service TodoService {
+  rpc CreateTodo (CreateTodoRequest) returns (Todo);
+  rpc ListTodos (ListTodosRequest) returns (ListTodosResponse);
+  rpc GetTodo (GetTodoRequest) returns (Todo);
+  rpc UpdateTodo (UpdateTodoRequest) returns (Todo);
+  rpc DeleteTodo (DeleteTodoRequest) returns (DeleteTodoResponse);
+  rpc ToggleTodo (ToggleTodoRequest) returns (Todo);
+}
+
+message Todo {
+  string id = 1;
+  string title = 2;
+  bool completed = 3;
+  int64 created_at = 4;
+}
+
+message CreateTodoRequest {
+  string title = 1;
+}
+
+message ListTodosRequest {}
+
+message ListTodosResponse {
+  repeated Todo todos = 1;
+}
+
+message GetTodoRequest {
+  string id = 1;
+}
+
+message UpdateTodoRequest {
+  string id = 1;
+  string title = 2;
+}
+
+message DeleteTodoRequest {
+  string id = 1;
+}
+
+message DeleteTodoResponse {
+  bool success = 1;
+}
+
+message ToggleTodoRequest {
+  string id = 1;
+}
