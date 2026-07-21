@@ -83,6 +83,47 @@ cp todo-service/proto/*.go gateway-service/proto/
 
 (Requires `protoc`, `protoc-gen-go`, and `protoc-gen-go-grpc` on your PATH.)
 
+## Logging — seeing which pod called which pod
+
+Both services log structured JSON to stdout (`log/slog`), each line tagged
+with `pod` (from the `HOSTNAME` env var, which k8s sets to the pod name).
+
+A request ID is generated in `gateway-service` for each incoming HTTP call
+(or reused if the caller already sent an `X-Request-Id` header), then passed
+to `todo-service` as gRPC metadata (`x-request-id`). Both services log that
+same ID, so you can grep one ID and see the full path of a request:
+
+```json
+{"msg":"http request received","pod":"gateway-service-5d6c7-xyz12","request_id":"0622...","method":"POST","path":"/todos"}
+{"msg":"todo created","pod":"todo-service-7f8b9-abcde","id":"1","title":"test logging"}
+{"msg":"rpc handled","pod":"todo-service-7f8b9-abcde","request_id":"0622...","method":"/todo.TodoService/CreateTodo","caller_addr":"127.0.0.1:45008","duration":34895}
+{"msg":"http request completed","pod":"gateway-service-5d6c7-xyz12","request_id":"0622...","status":201,"duration":4442490}
+```
+
+In k8s, tail both at once with:
+
+```bash
+kubectl logs -f -l app=gateway-service --prefix=true
+kubectl logs -f -l app=todo-service --prefix=true
+# or, with stern/kubectl-tail installed, just:
+stern 'gateway-service|todo-service'
+```
+
+**This is app-level logging.** Once Istio or Linkerd is actually in the
+mesh, you get a second, independent layer for free — the sidecar (Envoy for
+Istio, linkerd2-proxy for Linkerd) logs every request it proxies, including
+source pod, destination pod, response code, and latency, without any app
+changes. That's worth comparing side-by-side with these logs:
+- Istio: enable access logs via `meshConfig.accessLogFile: /dev/stdout`, then
+  `kubectl logs <pod> -c istio-proxy`.
+- Linkerd: `linkerd viz tap deploy/gateway-service` shows live request traffic
+  in/out, and `linkerd viz stat` gives success-rate/latency per service.
+
+For actual distributed tracing (a single trace spanning both pods, viewable
+as a waterfall) rather than just correlated log lines, both meshes can emit
+spans to Jaeger/Zipkin/Tempo automatically — that's a good next step once
+you want to go beyond grepping a request ID.
+
 ## Notes for k8s + service mesh testing
 
 - `gateway-service` looks up `todo-service` via the env var `TODO_SERVICE_ADDR`,

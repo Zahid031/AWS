@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -12,11 +14,64 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
 	pb "todo-service/proto"
 )
+
+// podName identifies which pod produced a given log line — this is what lets
+// you tell "pod A called pod B" apart once there's more than one replica.
+var podName = func() string {
+	if h := os.Getenv("HOSTNAME"); h != "" {
+		return h // k8s sets HOSTNAME to the pod name by default
+	}
+	h, _ := os.Hostname()
+	return h
+}()
+
+var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil)).With(
+	slog.String("service", "todo-service"),
+	slog.String("pod", podName),
+)
+
+// requestIDInterceptor logs every incoming RPC with the caller's request ID
+// (propagated via gRPC metadata from gateway-service), the calling peer
+// address, method name, duration, and result — this is what lets you trace
+// "which pod called which pod" without needing the mesh's own logs.
+func requestIDInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	start := time.Now()
+
+	requestID := "unknown"
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if vals := md.Get("x-request-id"); len(vals) > 0 {
+			requestID = vals[0]
+		}
+	}
+
+	callerAddr := "unknown"
+	if p, ok := peer.FromContext(ctx); ok {
+		callerAddr = p.Addr.String()
+	}
+
+	resp, err := handler(ctx, req)
+
+	attrs := []any{
+		slog.String("request_id", requestID),
+		slog.String("method", info.FullMethod),
+		slog.String("caller_addr", callerAddr),
+		slog.Duration("duration", time.Since(start)),
+	}
+	if err != nil {
+		logger.Error("rpc failed", append(attrs, slog.String("error", err.Error()))...)
+	} else {
+		logger.Info("rpc handled", attrs...)
+	}
+
+	return resp, err
+}
 
 // server implements pb.TodoServiceServer with a simple in-memory store.
 type server struct {
@@ -51,7 +106,7 @@ func (s *server) CreateTodo(ctx context.Context, req *pb.CreateTodoRequest) (*pb
 	}
 	s.todos[id] = todo
 
-	log.Printf("created todo id=%s title=%q", id, todo.Title)
+	logger.Info("todo created", slog.String("id", id), slog.String("title", todo.Title))
 	return todo, nil
 }
 
@@ -121,7 +176,7 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(requestIDInterceptor))
 	pb.RegisterTodoServiceServer(grpcServer, newServer())
 
 	// gRPC health checking - useful for k8s readiness/liveness probes
@@ -133,7 +188,7 @@ func main() {
 	// reflection makes it easy to poke the service with grpcurl for testing.
 	reflection.Register(grpcServer)
 
-	log.Printf("todo-service listening on %s", port)
+	logger.Info("todo-service listening", slog.String("port", port))
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}

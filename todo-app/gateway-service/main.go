@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -11,14 +14,100 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	pb "gateway-service/proto"
 )
 
+// podName identifies which pod produced a given log line — this is what lets
+// you tell "pod A called pod B" apart once there's more than one replica.
+var podName = func() string {
+	if h := os.Getenv("HOSTNAME"); h != "" {
+		return h // k8s sets HOSTNAME to the pod name by default
+	}
+	h, _ := os.Hostname()
+	return h
+}()
+
+var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil)).With(
+	slog.String("service", "gateway-service"),
+	slog.String("pod", podName),
+)
+
+func newRequestID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("%x", b)
+}
+
 // gatewayServer holds the gRPC client used to talk to todo-service.
 type gatewayServer struct {
 	todoClient pb.TodoServiceClient
+}
+
+type ctxKey string
+
+const requestIDKey ctxKey = "request_id"
+
+// requestIDFrom pulls the request ID out of a context, or "unknown" if absent.
+func requestIDFrom(ctx context.Context) string {
+	if id, ok := ctx.Value(requestIDKey).(string); ok {
+		return id
+	}
+	return "unknown"
+}
+
+// grpcCtx attaches the request ID onto an outgoing gRPC context, so
+// todo-service can log the same ID gateway-service used for the HTTP call —
+// that's the thread that ties "pod A called pod B" together across the hop.
+func grpcCtx(ctx context.Context) context.Context {
+	return metadata.AppendToOutgoingContext(ctx, "x-request-id", requestIDFrom(ctx))
+}
+
+// requestIDMiddleware assigns (or forwards) a request ID and logs every HTTP
+// call in and out with method, path, status, and duration.
+func requestIDMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		reqID := r.Header.Get("X-Request-Id")
+		if reqID == "" {
+			reqID = newRequestID()
+		}
+		w.Header().Set("X-Request-Id", reqID)
+
+		ctx := context.WithValue(r.Context(), requestIDKey, reqID)
+		r = r.WithContext(ctx)
+
+		logger.Info("http request received",
+			slog.String("request_id", reqID),
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+		)
+
+		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(sw, r)
+
+		logger.Info("http request completed",
+			slog.String("request_id", reqID),
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Int("status", sw.status),
+			slog.Duration("duration", time.Since(start)),
+		)
+	})
+}
+
+// statusWriter captures the status code so it can be logged after the handler runs.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (sw *statusWriter) WriteHeader(code int) {
+	sw.status = code
+	sw.ResponseWriter.WriteHeader(code)
 }
 
 type todoDTO struct {
@@ -64,7 +153,7 @@ func (g *gatewayServer) handleTodos(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		resp, err := g.todoClient.ListTodos(ctx, &pb.ListTodosRequest{})
+		resp, err := g.todoClient.ListTodos(grpcCtx(ctx), &pb.ListTodosRequest{})
 		if err != nil {
 			writeError(w, err)
 			return
@@ -83,7 +172,7 @@ func (g *gatewayServer) handleTodos(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 			return
 		}
-		todo, err := g.todoClient.CreateTodo(ctx, &pb.CreateTodoRequest{Title: body.Title})
+		todo, err := g.todoClient.CreateTodo(grpcCtx(ctx), &pb.CreateTodoRequest{Title: body.Title})
 		if err != nil {
 			writeError(w, err)
 			return
@@ -107,7 +196,7 @@ func (g *gatewayServer) handleTodoByID(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		todo, err := g.todoClient.ToggleTodo(ctx, &pb.ToggleTodoRequest{Id: id})
+		todo, err := g.todoClient.ToggleTodo(grpcCtx(ctx), &pb.ToggleTodoRequest{Id: id})
 		if err != nil {
 			writeError(w, err)
 			return
@@ -119,7 +208,7 @@ func (g *gatewayServer) handleTodoByID(w http.ResponseWriter, r *http.Request) {
 	id := path
 	switch r.Method {
 	case http.MethodGet:
-		todo, err := g.todoClient.GetTodo(ctx, &pb.GetTodoRequest{Id: id})
+		todo, err := g.todoClient.GetTodo(grpcCtx(ctx), &pb.GetTodoRequest{Id: id})
 		if err != nil {
 			writeError(w, err)
 			return
@@ -134,7 +223,7 @@ func (g *gatewayServer) handleTodoByID(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
 			return
 		}
-		todo, err := g.todoClient.UpdateTodo(ctx, &pb.UpdateTodoRequest{Id: id, Title: body.Title})
+		todo, err := g.todoClient.UpdateTodo(grpcCtx(ctx), &pb.UpdateTodoRequest{Id: id, Title: body.Title})
 		if err != nil {
 			writeError(w, err)
 			return
@@ -142,7 +231,7 @@ func (g *gatewayServer) handleTodoByID(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, toDTO(todo))
 
 	case http.MethodDelete:
-		_, err := g.todoClient.DeleteTodo(ctx, &pb.DeleteTodoRequest{Id: id})
+		_, err := g.todoClient.DeleteTodo(grpcCtx(ctx), &pb.DeleteTodoRequest{Id: id})
 		if err != nil {
 			writeError(w, err)
 			return
@@ -177,11 +266,12 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	// Simple CORS so a local frontend dev server can call this directly.
-	handler := corsMiddleware(mux)
+	// Simple CORS so a local frontend dev server can call this directly,
+	// then the request-ID/logging middleware wraps everything.
+	handler := requestIDMiddleware(corsMiddleware(mux))
 
 	port := ":8080"
-	log.Printf("gateway-service listening on %s, forwarding to todo-service at %s", port, todoServiceAddr)
+	logger.Info("gateway-service listening", slog.String("port", port), slog.String("todo_service_addr", todoServiceAddr))
 	log.Fatal(http.ListenAndServe(port, handler))
 }
 
