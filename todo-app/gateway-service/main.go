@@ -69,6 +69,10 @@ func grpcCtx(ctx context.Context) context.Context {
 // call in and out with method, path, status, and duration.
 func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
 		start := time.Now()
 
 		reqID := r.Header.Get("X-Request-Id")

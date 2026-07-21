@@ -7,7 +7,7 @@ metadata:
     app: todo-service
   
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: todo-service
@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: todo-service
-          image: zahid03/todo-grpc # TODO: replace with your built/pushed image
+          image: zahid03/todo-grpc:v1 # TODO: replace with your built/pushed image
           ports:
             - name: grpc
               containerPort: 50051

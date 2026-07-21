@@ -42,6 +42,9 @@ var logger = slog.New(slog.NewJSONHandler(os.Stdout, nil)).With(
 // address, method name, duration, and result — this is what lets you trace
 // "which pod called which pod" without needing the mesh's own logs.
 func requestIDInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	if info.FullMethod == "/grpc.health.v1.Health/Check" || info.FullMethod == "/grpc.health.v1.Health/Watch" {
+		return handler(ctx, req)
+	}	
 	start := time.Now()
 
 	requestID := "unknown"

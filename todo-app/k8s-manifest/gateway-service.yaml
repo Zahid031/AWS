@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: gateway-service
-          image: zahid03/todo-gateway:latest 
+          image: zahid03/todo-gateway:v1 
           ports:
             - name: http
               containerPort: 8080
@@ -60,4 +60,4 @@ spec:
       targetPort: 8080
   # Change to LoadBalancer (or add an Ingress) if you want to hit this from
   # outside the cluster instead of port-forwarding.
-  type: ClusterIP
+  type: NodePort
