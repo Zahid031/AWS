@@ -12,7 +12,7 @@ Key facts to memorize:
 
 | Property | Detail |
 |---|---|
-| Bucket names | Globally unique, DNS-compliant, lowercase, 3–63 chars, no underscores |
+| Bucket names | Globally unique, DNS-compliant, lowercase, 3–63 chars, no underscores, no IP, no Uppercase, cant start with sthree,no s3 alias,  no xn-- |
 | Object key | Full path/filename, up to 1024 bytes |
 | Object size | 0 bytes to 5 TB |
 | Single PUT limit | 5 GB (use multipart upload above 100 MB, required above 5 GB) |
